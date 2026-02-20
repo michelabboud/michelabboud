@@ -1,0 +1,65 @@
+name: Sync Forked Repos
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday at 6am UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  sync-forks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync all forks with upstream
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+
+            // Get all repos for the authenticated user
+            const repos = await github.paginate(github.rest.repos.listForAuthenticatedUser, {
+              type: 'owner',
+              per_page: 100,
+            });
+
+            const forks = repos.filter(r => r.fork);
+            console.log(`Found ${forks.length} forked repos`);
+
+            for (const fork of forks) {
+              const repo = fork.name;
+              const defaultBranch = fork.default_branch;
+
+              try {
+                // Check for open PRs authored by the owner
+                const { data: prs } = await github.rest.pulls.list({
+                  owner,
+                  repo,
+                  state: 'open',
+                  per_page: 100,
+                });
+
+                const myPRs = prs.filter(pr => pr.user.login === owner);
+
+                if (myPRs.length > 0) {
+                  console.log(`⏭️  ${repo}: Skipping — ${myPRs.length} open PR(s) by ${owner}`);
+                  continue;
+                }
+
+                // Sync fork with upstream
+                await github.rest.repos.mergeUpstream({
+                  owner,
+                  repo,
+                  branch: defaultBranch,
+                });
+
+                console.log(`✅ ${repo}: Synced ${defaultBranch} with upstream`);
+              } catch (error) {
+                if (error.message?.includes('409') || error.message?.includes('merge conflict')) {
+                  console.log(`⚠️  ${repo}: Conflict — manual merge needed`);
+                } else if (error.status === 409) {
+                  console.log(`ℹ️  ${repo}: Already up to date`);
+                } else {
+                  console.log(`❌ ${repo}: Error — ${error.message}`);
+                }
+              }
+            }
