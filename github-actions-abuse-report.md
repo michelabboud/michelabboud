@@ -20,12 +20,14 @@
 >
 > **The only way I discovered this problem was when I hit the 3,000-minute limit on my account.** There was no prior warning, no notification about unusual usage, and no prompt during the fork process alerting me that workflows would run and consume my minutes.
 >
-> ### The Scale of the Problem
+> ### The Scale of the Problem (Verified from GitHub Billing API)
 >
 > - **96 forked repositories** had Actions enabled by default
-> - **5 repositories** actively ran workflows, consuming a verified **639+ minutes** (actual total likely higher — API only returns ~1,000 of 2,749 runs for `gh-aw`)
-> - **1 repository alone** (`gh-aw`) executed **2,749 workflow runs** via scheduled cron jobs — including "Issue Monster", "Agentic Maintenance", "Bot Detection", "Copilot Agent PR Analysis", and 60+ other automated workflows running multiple times daily
-> - **Total estimated storage consumed by forks:** 17.2 GB
+> - **5 repositories** actively ran workflows, consuming **7,213 billable minutes** — that is **58% of my total account usage** (12,422 min total)
+> - **Gross charges from fork workflows: $29.75** out of $65.02 total account charges
+> - **1 repository alone** (`gh-aw`) consumed **6,534 minutes ($22.59)** via 2,749 scheduled cron runs — 63 different automated workflows running multiple times daily without any action on my part
+> - These minutes were billed across Linux, Linux Slim, Linux ARM, macOS 3-core, and Windows runners — all inherited from upstream workflow configurations I never chose
+> - **Total storage consumed by forks:** 17.2 GB
 >
 > ### Why This Is a Platform-Level Issue
 >
@@ -40,7 +42,7 @@
 >
 > ### My Request
 >
-> 1. **Refund all Actions minutes consumed by workflows on forked repositories.** These runs were entirely unintentional and provided zero value to me.
+> 1. **Refund the 7,213 Actions minutes ($29.75 gross) consumed by workflows on forked repositories.** These runs were entirely unintentional and provided zero value to me.
 > 2. **Consider implementing safeguards** for other users:
 >    - A warning dialog when forking repos with active workflows
 >    - An account-level setting to auto-disable Actions on forks
@@ -55,21 +57,29 @@
 
 ---
 
-## Affected Repositories — Detailed Breakdown
+## Billing Data (from GitHub Billing API)
 
-### Summary
+### Account-Level Impact
 
-| Metric | Value |
-|--------|-------|
-| Total forked repos | 96 |
-| Repos with workflow runs | 5 |
-| Total workflow runs | 2,802 |
-| Verified minutes consumed (API-visible runs) | 639+ min |
-| Estimated true total (incl. non-paginated gh-aw runs) | ~870+ min |
-| Total fork storage | 17.2 GB |
-| Account minutes limit | 3,000 min |
+| Metric | Total Account | From Forks Only | Fork % |
+|--------|--------------|-----------------|--------|
+| Billable minutes | 12,422 min | 7,213 min | **58.1%** |
+| Gross charges | $65.02 | $29.75 | **45.8%** |
+
+### Per-Fork Billing Breakdown (exact data from `/users/michelabboud/settings/billing/usage`)
+
+| Repository | Minutes | Cost (USD) | Runner Types | Period |
+|-----------|---------|-----------|-------------|--------|
+| **gh-aw** | **6,534** | **$22.59** | Linux, Linux Slim, Windows, macOS 3-core | Feb 20 – Mar 1 |
+| **luanti** | **592** | **$6.64** | Linux, Linux ARM, Windows, macOS 3-core | Feb 21 – Mar 2 |
+| **ironclaw** | **45** | **$0.27** | Linux | Feb 20 – Mar 2 |
+| **litellm** | **25** | **$0.15** | Linux | Mar 2 |
+| **mcp-fusion** | **17** | **$0.10** | Linux | Feb 23 – Mar 2 |
+| **Total** | **7,213** | **$29.75** | | |
 
 ---
+
+## Affected Repositories — Detailed Breakdown
 
 ### 1. `michelabboud/gh-aw` — CRITICAL
 
@@ -78,8 +88,9 @@
 | Forked on | 2026-02-15 |
 | Total workflow runs | **2,749** |
 | Trigger type | `schedule` (cron — multiple times daily) |
-| Verified minutes consumed | **316 min** (from ~1,000 API-visible completed runs) |
-| Estimated true total | **~870 min** (extrapolated to all 2,749 runs) |
+| Billed minutes | **6,534** |
+| Billed cost | **$22.59** |
+| Runner types | Linux (418 min), Linux Slim (1,122 min), Windows (9 min), macOS 3-core (8 min) + earlier billing periods |
 | Storage | 559 MB |
 | Unique workflows | **63** |
 
@@ -99,7 +110,7 @@
 | Daily Security Red Team Agent | 1 | failure |
 | + 53 more workflows | ... | mostly failure/startup_failure |
 
-This repository is an extreme case: **63 different scheduled workflows** ran continuously on the fork, many multiple times per day, from Feb 15 to Mar 6 (19 days).
+This repository is an extreme case: **63 different scheduled workflows** ran continuously on the fork, many multiple times per day, from Feb 15 to Mar 6 (19 days). Many of these workflows failed immediately but still consumed runner minutes.
 
 ---
 
@@ -110,7 +121,9 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 | Forked on | 2026-02-21 |
 | Total workflow runs | **27** |
 | Trigger types | `push`, `schedule` |
-| Total duration | **278 minutes** |
+| Billed minutes | **592** |
+| Billed cost | **$6.64** |
+| Runner types | Linux (86 min), Linux ARM (8 min), macOS 3-core (20 min), Windows (139 min) |
 | Storage | 131 MB |
 
 **Workflow breakdown:**
@@ -130,14 +143,15 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 
 ---
 
-### 5. `michelabboud/ironclaw`
+### 3. `michelabboud/ironclaw`
 
 | Detail | Value |
 |--------|-------|
 | Forked on | 2026-02-14 |
 | Total workflow runs | **6** |
 | Trigger type | `push` |
-| Total duration | **22 minutes** |
+| Billed minutes | **45** |
+| Billed cost | **$0.27** |
 | Storage | 5.3 MB |
 
 **Workflow breakdown:**
@@ -149,14 +163,15 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 
 ---
 
-### 3. `michelabboud/litellm`
+### 4. `michelabboud/litellm`
 
 | Detail | Value |
 |--------|-------|
 | Forked on | 2026-02-27 |
 | Total workflow runs | **16** |
 | Trigger types | `schedule`, `push` |
-| Total duration | **15 minutes** |
+| Billed minutes | **25** |
+| Billed cost | **$0.15** |
 | Storage | 708 MB |
 
 **Workflow breakdown:**
@@ -171,14 +186,15 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 
 ---
 
-### 4. `michelabboud/mcp-fusion`
+### 5. `michelabboud/mcp-fusion`
 
 | Detail | Value |
 |--------|-------|
 | Forked on | 2026-02-21 |
 | Total workflow runs | **4** |
 | Trigger type | `push` |
-| Total duration | **8 minutes** |
+| Billed minutes | **17** |
+| Billed cost | **$0.10** |
 | Storage | 3.3 MB |
 
 **Workflow breakdown:**
@@ -219,7 +235,7 @@ Total storage consumed by all 96 forks: **17,186,633 KB (~17.2 GB)**
 | 19 | rag-time | 71 MB |
 | 20 | claude-pilot | 69 MB |
 
-### Remaining 76 Forks (no workflow runs, but Actions were enabled)
+### Remaining Forks (no workflow runs, but Actions were enabled)
 
 All 91 remaining forked repos had GitHub Actions **enabled by default** even though none triggered workflow runs. These repos were at risk of consuming minutes if any upstream workflow used `schedule` or `push` triggers.
 
@@ -245,4 +261,4 @@ All 91 remaining forked repos had GitHub Actions **enabled by default** even tho
 
 ---
 
-*Report generated on 2026-03-06 by automated analysis of the GitHub API.*
+*Report generated on 2026-03-06 using data from the GitHub Billing API and GitHub Actions API.*
