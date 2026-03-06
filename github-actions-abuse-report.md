@@ -23,7 +23,7 @@
 > ### The Scale of the Problem
 >
 > - **96 forked repositories** had Actions enabled by default
-> - **6 repositories** actively ran workflows, consuming an estimated **780+ minutes**
+> - **5 repositories** actively ran workflows, consuming a verified **639+ minutes** (actual total likely higher — API only returns ~1,000 of 2,749 runs for `gh-aw`)
 > - **1 repository alone** (`gh-aw`) executed **2,749 workflow runs** via scheduled cron jobs — including "Issue Monster", "Agentic Maintenance", "Bot Detection", "Copilot Agent PR Analysis", and 60+ other automated workflows running multiple times daily
 > - **Total estimated storage consumed by forks:** 17.2 GB
 >
@@ -62,9 +62,10 @@
 | Metric | Value |
 |--------|-------|
 | Total forked repos | 96 |
-| Repos with workflow runs | 6 |
-| Total workflow runs | 2,803 |
-| Estimated total minutes consumed | ~780+ min |
+| Repos with workflow runs | 5 |
+| Total workflow runs | 2,802 |
+| Verified minutes consumed (API-visible runs) | 639+ min |
+| Estimated true total (incl. non-paginated gh-aw runs) | ~870+ min |
 | Total fork storage | 17.2 GB |
 | Account minutes limit | 3,000 min |
 
@@ -77,7 +78,8 @@
 | Forked on | 2026-02-15 |
 | Total workflow runs | **2,749** |
 | Trigger type | `schedule` (cron — multiple times daily) |
-| Estimated minutes consumed | **~458 min** (based on avg 10s/run sample) |
+| Verified minutes consumed | **316 min** (from ~1,000 API-visible completed runs) |
+| Estimated true total | **~870 min** (extrapolated to all 2,749 runs) |
 | Storage | 559 MB |
 | Unique workflows | **63** |
 
@@ -128,7 +130,7 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 
 ---
 
-### 3. `michelabboud/ironclaw`
+### 5. `michelabboud/ironclaw`
 
 | Detail | Value |
 |--------|-------|
@@ -147,7 +149,7 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 
 ---
 
-### 4. `michelabboud/litellm`
+### 3. `michelabboud/litellm`
 
 | Detail | Value |
 |--------|-------|
@@ -169,7 +171,7 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 
 ---
 
-### 5. `michelabboud/mcp-fusion`
+### 4. `michelabboud/mcp-fusion`
 
 | Detail | Value |
 |--------|-------|
@@ -185,22 +187,6 @@ This repository is an extreme case: **63 different scheduled workflows** ran con
 |----------|------|--------|
 | CI | 2 | 1 success, 1 failure |
 | GitHub Pages | 2 | both failure |
-
----
-
-### 6. `michelabboud/windows-1`
-
-| Detail | Value |
-|--------|-------|
-| Forked on | 2026-01-29 |
-| Total workflow runs | **1** |
-| Trigger type | `push` |
-| Total duration | **<1 minute** |
-| Storage | 1.3 MB |
-
-| Workflow | Runs | Status |
-|----------|------|--------|
-| Update | 1 | failure |
 
 ---
 
@@ -235,7 +221,7 @@ Total storage consumed by all 96 forks: **17,186,633 KB (~17.2 GB)**
 
 ### Remaining 76 Forks (no workflow runs, but Actions were enabled)
 
-All 90 remaining forked repos had GitHub Actions **enabled by default** even though none triggered workflow runs. These repos were at risk of consuming minutes if any upstream workflow used `schedule` or `push` triggers.
+All 91 remaining forked repos had GitHub Actions **enabled by default** even though none triggered workflow runs. These repos were at risk of consuming minutes if any upstream workflow used `schedule` or `push` triggers.
 
 ---
 
