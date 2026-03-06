@@ -1,6 +1,7 @@
 # GitHub Actions Minutes Abuse Report & Refund Request
 
 **Account:** [michelabboud](https://github.com/michelabboud)
+**Plan:** GitHub Pro (3,000 included Actions minutes/month)
 **Date:** March 6, 2026
 **Issue:** Unintended GitHub Actions workflow execution on forked repositories
 
@@ -42,7 +43,7 @@
 >
 > ### My Request
 >
-> 1. **Refund the 7,213 Actions minutes ($29.75 gross) consumed by workflows on forked repositories.** These runs were entirely unintentional and provided zero value to me.
+> 1. **Refund the 7,213 Actions minutes consumed by workflows on forked repositories.** These runs were entirely unintentional and provided zero value to me. As a Pro plan user with 3,000 included minutes/month, this unintended usage exhausted my monthly quota and blocked my own legitimate projects from running Actions.
 > 2. **Consider implementing safeguards** for other users:
 >    - A warning dialog when forking repos with active workflows
 >    - An account-level setting to auto-disable Actions on forks
