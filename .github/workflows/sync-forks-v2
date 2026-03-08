@@ -1,0 +1,181 @@
+name: Sync Approved Forked Repos
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run without making changes'
+        required: true
+        default: 'true'
+
+jobs:
+  sync-forks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Sync approved forks safely
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const core = require('@actions/core');
+            const owner = 'michelabboud';
+            const dryRun = core.getInput('dry_run') === 'true';
+
+            const allowedForks = new Set([
+              // explicit safe repos only
+              // 'repo-a',
+              // 'repo-b',
+            ]);
+
+            const allowedWorkflowForks = new Set([
+              // forks allowed even if they contain workflow files
+            ]);
+
+            const allowedActionsEnabledForks = new Set([
+              // forks allowed even if Actions are enabled
+            ]);
+
+            const skipRepos = new Set([
+              'fork-admin',
+              '.github',
+              'michelabboud',
+            ]);
+
+            function sleep(ms) {
+              return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            async function hasWorkflowFiles(owner, repo) {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner,
+                  repo,
+                  path: '.github/workflows',
+                });
+                return Array.isArray(data) && data.length > 0;
+              } catch (error) {
+                if (error.status === 404) return false;
+                throw error;
+              }
+            }
+
+            async function getActionsEnabled(owner, repo) {
+              try {
+                const { data } = await github.rest.actions.getGithubActionsPermissionsRepository({
+                  owner,
+                  repo,
+                });
+                return data.enabled;
+              } catch (error) {
+                core.warning(`${repo}: could not read Actions status: ${error.message}`);
+                return null;
+              }
+            }
+
+            async function hasOpenPRAgainstUpstream(fork) {
+              if (!fork.parent) return false;
+
+              const parentOwner = fork.parent.owner.login;
+              const parentRepo = fork.parent.name;
+
+              const { data: prs } = await github.rest.pulls.list({
+                owner: parentOwner,
+                repo: parentRepo,
+                state: 'open',
+                per_page: 100,
+              });
+
+              return prs.some(pr =>
+                pr.head.repo?.owner?.login === owner &&
+                pr.head.repo?.name === fork.name
+              );
+            }
+
+            const repos = await github.paginate(github.rest.repos.listForUser, {
+              username: owner,
+              type: 'owner',
+              per_page: 100,
+            });
+
+            const forks = repos.filter(r =>
+              r.fork &&
+              !skipRepos.has(r.name) &&
+              allowedForks.has(r.name)
+            );
+
+            core.info(`Found ${forks.length} approved forks`);
+
+            const synced = [];
+            const skipped = [];
+            const failed = [];
+
+            for (const fork of forks) {
+              const repo = fork.name;
+              const defaultBranch = fork.default_branch;
+
+              try {
+                if (!defaultBranch) {
+                  skipped.push({ repo, reason: 'No default branch' });
+                  continue;
+                }
+
+                if (!fork.parent) {
+                  skipped.push({ repo, reason: 'No parent metadata' });
+                  continue;
+                }
+
+                const workflowFiles = await hasWorkflowFiles(owner, repo);
+                if (workflowFiles && !allowedWorkflowForks.has(repo)) {
+                  skipped.push({ repo, reason: 'Contains workflow files' });
+                  continue;
+                }
+
+                const actionsEnabled = await getActionsEnabled(owner, repo);
+                if (actionsEnabled === true && !allowedActionsEnabledForks.has(repo)) {
+                  skipped.push({ repo, reason: 'Actions enabled' });
+                  continue;
+                }
+
+                const openPR = await hasOpenPRAgainstUpstream(fork);
+                if (openPR) {
+                  skipped.push({ repo, reason: 'Open PR against upstream exists' });
+                  continue;
+                }
+
+                if (dryRun) {
+                  skipped.push({ repo, reason: 'Dry run - would sync' });
+                  continue;
+                }
+
+                const result = await github.rest.repos.mergeUpstream({
+                  owner,
+                  repo,
+                  branch: defaultBranch,
+                });
+
+                synced.push({
+                  repo,
+                  branch: defaultBranch,
+                  mergeType: result.data.merge_type || 'unknown',
+                });
+
+              } catch (error) {
+                failed.push({
+                  repo,
+                  status: error.status || 'unknown',
+                  message: error.message,
+                });
+              }
+
+              await sleep(250);
+            }
+
+            await core.summary
+              .addHeading('Fork Sync Report')
+              .addCodeBlock(JSON.stringify({ synced, skipped, failed }, null, 2), 'json')
+              .write();
