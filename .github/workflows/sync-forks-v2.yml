@@ -20,34 +20,42 @@ jobs:
     steps:
       - name: Sync approved forks safely
         uses: actions/github-script@v7
+        env:
+          OWNER: michelabboud
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
         with:
           github-token: ${{ secrets.PAT_TOKEN }}
           script: |
-            const owner = 'michelabboud';
-            const dryRun = core.getInput('dry_run') !== 'false';
+            const owner = process.env.OWNER;
+            const dryRun = process.env.DRY_RUN !== 'false';
 
             // -------------------------------
             // CONFIGURATION
             // -------------------------------
 
+            // Repos never to touch
             const skipRepos = new Set([
-              'michelabboud',
-              '.github',
-              // 'fork-admin',
+              'michelabboud', // profile repo
+              '.github',      // special repo if it exists
+              // 'fork-admin', // add your controller repo here if relevant
             ]);
 
-            // const useAllowlist = true;
+            // Set to true to only process forks explicitly listed in allowedForks
+            // Set to false to inspect all forks except skipRepos
             const useAllowlist = false;
 
+            // Explicitly approved forks to sync when useAllowlist = true
             const allowedForks = new Set([
               // 'repo-a',
               // 'repo-b',
             ]);
 
+            // Forks allowed even if they contain .github/workflows/*
             const allowedWorkflowForks = new Set([
               // 'repo-a',
             ]);
 
+            // Forks allowed even if Actions are enabled
             const allowedActionsEnabledForks = new Set([
               // 'repo-a',
             ]);
@@ -88,11 +96,11 @@ jobs:
               }
             }
 
-            async function hasOpenPRAgainstUpstream(fork) {
-              if (!fork.parent) return false;
+            async function hasOpenPRAgainstUpstream(repoDetails) {
+              if (!repoDetails.parent) return false;
 
-              const parentOwner = fork.parent.owner.login;
-              const parentRepo = fork.parent.name;
+              const parentOwner = repoDetails.parent.owner.login;
+              const parentRepo = repoDetails.parent.name;
 
               const prs = await github.paginate(github.rest.pulls.list, {
                 owner: parentOwner,
@@ -103,7 +111,7 @@ jobs:
 
               return prs.some(pr =>
                 pr.head?.repo?.owner?.login === owner &&
-                pr.head?.repo?.name === fork.name
+                pr.head?.repo?.name === repoDetails.name
               );
             }
 
@@ -111,6 +119,7 @@ jobs:
             // MAIN
             // -------------------------------
 
+            // Keep listForUser so behavior matches your original approach
             const repos = await github.paginate(github.rest.repos.listForUser, {
               username: owner,
               type: 'owner',
@@ -132,10 +141,19 @@ jobs:
 
             for (const fork of forks) {
               const repo = fork.name;
-              const defaultBranch = fork.default_branch;
 
               try {
                 core.info(`--- Checking ${repo} ---`);
+
+                // IMPORTANT:
+                // listForUser does not reliably include parent/source metadata for forks.
+                // Fetch full repo details before making fork decisions.
+                const { data: repoDetails } = await github.rest.repos.get({
+                  owner,
+                  repo,
+                });
+
+                const defaultBranch = repoDetails.default_branch;
 
                 if (!defaultBranch) {
                   skipped.push({ repo, reason: 'No default branch' });
@@ -143,9 +161,15 @@ jobs:
                   continue;
                 }
 
-                if (!fork.parent) {
-                  skipped.push({ repo, reason: 'No parent metadata' });
-                  core.info(`⏭️ ${repo}: Skipping — no parent metadata`);
+                if (repoDetails.archived) {
+                  skipped.push({ repo, reason: 'Archived repository' });
+                  core.info(`⏭️ ${repo}: Skipping — archived repository`);
+                  continue;
+                }
+
+                if (!repoDetails.parent) {
+                  skipped.push({ repo, reason: 'No parent metadata from repo details' });
+                  core.info(`⏭️ ${repo}: Skipping — no parent metadata from repo details`);
                   continue;
                 }
 
@@ -157,13 +181,19 @@ jobs:
                 }
 
                 const actionsEnabled = await getActionsEnabled(owner, repo);
+                if (actionsEnabled === null) {
+                  skipped.push({ repo, reason: 'Could not determine Actions status' });
+                  core.info(`⏭️ ${repo}: Skipping — could not determine Actions status`);
+                  continue;
+                }
+
                 if (actionsEnabled === true && !allowedActionsEnabledForks.has(repo)) {
                   skipped.push({ repo, reason: 'Actions enabled on fork' });
                   core.info(`⏭️ ${repo}: Skipping — Actions are enabled on this fork`);
                   continue;
                 }
 
-                const openPR = await hasOpenPRAgainstUpstream(fork);
+                const openPR = await hasOpenPRAgainstUpstream(repoDetails);
                 if (openPR) {
                   skipped.push({ repo, reason: 'Open PR against upstream exists' });
                   core.info(`⏭️ ${repo}: Skipping — open PR against upstream exists`);
@@ -171,8 +201,11 @@ jobs:
                 }
 
                 if (dryRun) {
-                  skipped.push({ repo, reason: `Dry run — would sync ${defaultBranch}` });
-                  core.info(`🧪 ${repo}: Dry run — would sync branch ${defaultBranch}`);
+                  skipped.push({
+                    repo,
+                    reason: `Dry run — would sync ${defaultBranch} from ${repoDetails.parent.full_name}`,
+                  });
+                  core.info(`🧪 ${repo}: Dry run — would sync ${defaultBranch} from ${repoDetails.parent.full_name}`);
                   continue;
                 }
 
@@ -193,6 +226,7 @@ jobs:
                 synced.push({
                   repo,
                   branch: defaultBranch,
+                  upstream: repoDetails.parent.full_name,
                   mergeType,
                 });
 
