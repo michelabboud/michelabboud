@@ -36,7 +36,8 @@ jobs:
               // 'fork-admin',
             ]);
 
-            const useAllowlist = true;
+            // const useAllowlist = true;
+            const useAllowlist = false;
 
             const allowedForks = new Set([
               // 'repo-a',
