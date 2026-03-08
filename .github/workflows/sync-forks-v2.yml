@@ -1,50 +1,59 @@
-name: Sync Approved Forked Repos
+name: Sync Forked Repos
 
 on:
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '0 6 * * 1' # Every Monday at 6am UTC
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Run without making changes'
+        description: 'Run in dry-run mode'
         required: true
         default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   sync-forks:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - name: Sync approved forks safely
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PAT_TOKEN }}
           script: |
-            const core = require('@actions/core');
             const owner = 'michelabboud';
-            const dryRun = core.getInput('dry_run') === 'true';
+            const dryRun = core.getInput('dry_run') !== 'false';
+
+            // -------------------------------
+            // CONFIGURATION
+            // -------------------------------
+
+            const skipRepos = new Set([
+              'michelabboud',
+              '.github',
+              // 'fork-admin',
+            ]);
+
+            const useAllowlist = true;
 
             const allowedForks = new Set([
-              // explicit safe repos only
               // 'repo-a',
               // 'repo-b',
             ]);
 
             const allowedWorkflowForks = new Set([
-              // forks allowed even if they contain workflow files
+              // 'repo-a',
             ]);
 
             const allowedActionsEnabledForks = new Set([
-              // forks allowed even if Actions are enabled
+              // 'repo-a',
             ]);
 
-            const skipRepos = new Set([
-              'fork-admin',
-              '.github',
-              'michelabboud',
-            ]);
+            // -------------------------------
+            // HELPERS
+            // -------------------------------
 
             function sleep(ms) {
               return new Promise(resolve => setTimeout(resolve, ms));
@@ -57,6 +66,7 @@ jobs:
                   repo,
                   path: '.github/workflows',
                 });
+
                 return Array.isArray(data) && data.length > 0;
               } catch (error) {
                 if (error.status === 404) return false;
@@ -72,7 +82,7 @@ jobs:
                 });
                 return data.enabled;
               } catch (error) {
-                core.warning(`${repo}: could not read Actions status: ${error.message}`);
+                core.warning(`${repo}: Could not read Actions status: ${error.message}`);
                 return null;
               }
             }
@@ -83,7 +93,7 @@ jobs:
               const parentOwner = fork.parent.owner.login;
               const parentRepo = fork.parent.name;
 
-              const { data: prs } = await github.rest.pulls.list({
+              const prs = await github.paginate(github.rest.pulls.list, {
                 owner: parentOwner,
                 repo: parentRepo,
                 state: 'open',
@@ -91,10 +101,14 @@ jobs:
               });
 
               return prs.some(pr =>
-                pr.head.repo?.owner?.login === owner &&
-                pr.head.repo?.name === fork.name
+                pr.head?.repo?.owner?.login === owner &&
+                pr.head?.repo?.name === fork.name
               );
             }
+
+            // -------------------------------
+            // MAIN
+            // -------------------------------
 
             const repos = await github.paginate(github.rest.repos.listForUser, {
               username: owner,
@@ -102,13 +116,14 @@ jobs:
               per_page: 100,
             });
 
-            const forks = repos.filter(r =>
-              r.fork &&
-              !skipRepos.has(r.name) &&
-              allowedForks.has(r.name)
-            );
+            let forks = repos.filter(r => r.fork && !skipRepos.has(r.name));
 
-            core.info(`Found ${forks.length} approved forks`);
+            if (useAllowlist) {
+              forks = forks.filter(r => allowedForks.has(r.name));
+            }
+
+            core.info(`Found ${forks.length} candidate fork(s)`);
+            core.info(`Dry run mode: ${dryRun}`);
 
             const synced = [];
             const skipped = [];
@@ -119,36 +134,44 @@ jobs:
               const defaultBranch = fork.default_branch;
 
               try {
+                core.info(`--- Checking ${repo} ---`);
+
                 if (!defaultBranch) {
                   skipped.push({ repo, reason: 'No default branch' });
+                  core.info(`⏭️ ${repo}: Skipping — no default branch`);
                   continue;
                 }
 
                 if (!fork.parent) {
                   skipped.push({ repo, reason: 'No parent metadata' });
+                  core.info(`⏭️ ${repo}: Skipping — no parent metadata`);
                   continue;
                 }
 
                 const workflowFiles = await hasWorkflowFiles(owner, repo);
                 if (workflowFiles && !allowedWorkflowForks.has(repo)) {
                   skipped.push({ repo, reason: 'Contains workflow files' });
+                  core.info(`⏭️ ${repo}: Skipping — contains .github/workflows`);
                   continue;
                 }
 
                 const actionsEnabled = await getActionsEnabled(owner, repo);
                 if (actionsEnabled === true && !allowedActionsEnabledForks.has(repo)) {
-                  skipped.push({ repo, reason: 'Actions enabled' });
+                  skipped.push({ repo, reason: 'Actions enabled on fork' });
+                  core.info(`⏭️ ${repo}: Skipping — Actions are enabled on this fork`);
                   continue;
                 }
 
                 const openPR = await hasOpenPRAgainstUpstream(fork);
                 if (openPR) {
                   skipped.push({ repo, reason: 'Open PR against upstream exists' });
+                  core.info(`⏭️ ${repo}: Skipping — open PR against upstream exists`);
                   continue;
                 }
 
                 if (dryRun) {
-                  skipped.push({ repo, reason: 'Dry run - would sync' });
+                  skipped.push({ repo, reason: `Dry run — would sync ${defaultBranch}` });
+                  core.info(`🧪 ${repo}: Dry run — would sync branch ${defaultBranch}`);
                   continue;
                 }
 
@@ -158,24 +181,52 @@ jobs:
                   branch: defaultBranch,
                 });
 
+                const mergeType = result.data?.merge_type || 'unknown';
+
+                if (mergeType === 'none') {
+                  core.info(`ℹ️ ${repo}: Already up to date`);
+                } else {
+                  core.info(`✅ ${repo}: Synced ${defaultBranch} (${mergeType})`);
+                }
+
                 synced.push({
                   repo,
                   branch: defaultBranch,
-                  mergeType: result.data.merge_type || 'unknown',
+                  mergeType,
                 });
 
               } catch (error) {
-                failed.push({
-                  repo,
-                  status: error.status || 'unknown',
-                  message: error.message,
-                });
+                if (error.status === 409) {
+                  failed.push({
+                    repo,
+                    status: 409,
+                    message: 'Conflict — manual merge needed',
+                  });
+                  core.warning(`⚠️ ${repo}: Conflict — manual merge needed`);
+                } else {
+                  failed.push({
+                    repo,
+                    status: error.status || 'unknown',
+                    message: error.message,
+                  });
+                  core.warning(`❌ ${repo}: Error — ${error.message}`);
+                }
               }
 
-              await sleep(250);
+              await sleep(300);
             }
+
+            const report = {
+              dryRun,
+              totalCandidates: forks.length,
+              synced,
+              skipped,
+              failed,
+            };
+
+            core.info(`Done. Synced: ${synced.length}, Skipped: ${skipped.length}, Failed: ${failed.length}`);
 
             await core.summary
               .addHeading('Fork Sync Report')
-              .addCodeBlock(JSON.stringify({ synced, skipped, failed }, null, 2), 'json')
+              .addCodeBlock(JSON.stringify(report, null, 2), 'json')
               .write();
